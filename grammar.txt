@@ -1,0 +1,48 @@
+<expr> =
+    <constant> | <identifier> | <list> |
+    <operator_operation> |
+    <function_application> |
+    <operator_function> |
+    <lambda_function> |
+    (<expr>)
+
+<list> = [<expr>, ...]
+<constant> = number
+<identifier> = identifier
+
+<unary_operation> = <unary_op> <expr>
+<binary_operation> = <expr> <binary_op> <expr>
+<ternary_operation> = <expr> <ternary_op_1> <expr> <ternary_op_2> <expr>
+<operator_operation> =
+    <unary_operation> |
+    <binary_operation> |
+    <ternary_operation>
+
+<function_application> =
+    (<expr>)(<expr>, ...) |
+    <list>(<expr, ...) |
+    <operator_function>(<expr>, ...) |
+    <identifier>(<expr>, ...) |
+    <lambda_function>(<expr>, ...) |
+    <function_application>(<expr>, ...)
+
+<unary_function> = {<unary_op>}
+<binary_function> =
+    {<binary_op>} |
+    {<expr> <binary_op>} |
+    {<binary_op> <expr>}
+<ternary_function> =
+    {<ternary_op_1> <ternary_op_2>} |
+    {<expr> <ternary_op_1> <ternary_op_2>} |
+    {<ternary_op_1> <expr> <ternary_op_2>} |
+    {<ternary_op_1> <ternary_op_2> <expr>} |
+    {<expr> <ternary_op_1> <expr> <ternary_op_2>} |
+    {<expr> <ternary_op_1> <ternary_op_2> <expr>} |
+    {<ternary_op_1> <expr> <ternary_op_2> <expr>}
+
+<operator_function> =
+    <unary_function> |
+    <binary_function> |
+    <ternary_function>
+
+<lambda_function> = {<identifier> ... -> <expr>}

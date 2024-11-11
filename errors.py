@@ -1,0 +1,12 @@
+class MathError(Exception): pass
+class TokenizerError(MathError): pass
+class UnknownCharacterError(TokenizerError): pass
+class UnknownOperatorError(TokenizerError): pass
+class InvalidNumberLiteral(MathError): pass
+class BracketError(TokenizerError): pass
+class UnbalancedBracketsError(BracketError): pass
+class UnclosedBracketsError(BracketError): pass
+class MismatchedBracketsError(BracketError): pass
+class ParserError(MathError): pass
+class InvalidExpressionList(ParserError): pass
+class InvalidLambdaExpression(ParserError): pass
