@@ -385,8 +385,20 @@ class DictExtension(dict):
     
     def __repr__(self):
         return '{->}' if not self else '{'+', '.join(
-                f"{key} -> {value}" for key, value in self.items()
+                f"{key!r} -> {value!r}" for key, value in self.items()
         ) + '}'
+
+class StringExtension(str):
+    
+    # force the use of double quotes
+    def __repr__(self):
+        return (
+            '"' +
+            (
+                "'" + str.__repr__('"' + self)[2:]
+            )[1:-1].replace('"', '\\"').replace('\\\'', '\'') +
+            '"'
+        )
 
 class ComplexExtension(complex):
     def __str__(self):
@@ -523,6 +535,8 @@ BLANK_SLICE = BlankSlice()
 # coerces a python object into the type used by the expression interpreter
 
 @overload
+def coerce(object: str) -> StringExtension: ...
+@overload
 def coerce(object: list) -> ListExtension: ...
 @overload
 def coerce(object: tuple) -> TupleExtension: ...
@@ -537,7 +551,9 @@ def coerce[T](object: T) -> T: ...
 
 def coerce(object):
     # not a bug, explicitly checking for exact type, no isinstance
-    if type(object) == list:
+    if type(object) == str:
+        return StringExtension(object)
+    elif type(object) == list:
         return ListExtension(object)
     elif type(object) == tuple:
         return TupleExtension(object)
