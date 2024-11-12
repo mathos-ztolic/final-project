@@ -10,7 +10,7 @@ from parser import (
     IndexingNode, PrefixUnaryOperatorFunctionNode,
     PostfixUnaryOperatorFunctionNode, BinaryOperatorFunctionNode,
     TernaryOperatorFunctionNode, AttributeAccessNode, TupleNode,
-    Uncomputed
+    Uncomputed, DictionaryNode
 )
 import copy
 from custom_types import (
@@ -208,6 +208,16 @@ def execute_tree(node: ExpressionNode, scope = global_scope):
                 else:
                     exprs.append(execute_tree(expr, scope))
             node.result = coerce(tuple(exprs))
+            return node.result
+        case DictionaryNode():
+            dct = {}
+            for key, value in zip(node.keys, node.values):
+                # unpack
+                if value is None:
+                    dct.update(execute_tree(key, scope))
+                else:
+                    dct[execute_tree(key, scope)] = execute_tree(value, scope)
+            node.result = coerce(dct)
             return node.result
         case GroupNode():
             node.result = execute_tree(node.expr, scope)

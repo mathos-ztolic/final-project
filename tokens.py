@@ -3,7 +3,7 @@ from constants import (
     Operator, PREFIX_UNARY_OPERATORS, POSTFIX_UNARY_OPERATORS,
     BINARY_OPERATORS, TERNARY_OPERATORS
 )
-from typing import Optional, Self
+from typing import Optional, Self, cast
 from enum import Enum
 import abc
 from typing import Any
@@ -69,6 +69,57 @@ class OperatorFunctionPlaceholder(Pattern):
             case TokenGroup('{', []):
                 return obj
         return MatchFailed.FAIL
+
+class DictionaryPattern(Pattern):
+    @staticmethod
+    def match(obj: Any) -> list[Token | TokenGroup] | MatchFailed:
+        if not isinstance(obj, list):
+            return MatchFailed.FAIL
+        if (
+            len(obj) == 1
+            and isinstance(obj[0], ArrowToken)
+            and cast(ArrowToken,  obj[0]).value == '->'
+        ):
+            return cast(list[Token | TokenGroup], obj)
+        result = [TokenGroup(None, [])]
+        current = result[0].values
+        unpacks = 0
+        is_unpack = False
+        for tok in obj:
+            if isinstance(tok, ArrowToken) and (
+                tok.value != '->' or
+                not current or
+                (len(result) - 3*unpacks) % 4 != 1
+            ) or isinstance(tok, SeparatorToken) and (
+                not current or
+                (len(result) - 3*unpacks) % 4 != 3
+            ) or (
+                not isinstance(tok, Token | TokenGroup)
+            ):
+                return MatchFailed.FAIL
+            elif isinstance(tok, UnpackToken):
+                if current or is_unpack:
+                    return MatchFailed.FAIL
+                result.insert(len(result)-1, tok)
+                unpacks += 1
+                is_unpack = True
+                continue
+            elif isinstance(tok, (ArrowToken, SeparatorToken)):
+                if is_unpack and isinstance(tok, ArrowToken):
+                    return MatchFailed.FAIL
+                is_unpack = False
+                result.append(tok)
+                result.append(TokenGroup(None, []))
+                current = result[-1].values
+                continue
+            current.append(tok)
+        if not current:
+            return MatchFailed.FAIL
+        # make it start with an arrow to mark it as a dictionary for the
+        # parser, easier to check for the case
+        result.insert(0, ArrowToken('->'))
+        return result
+
 
 class PrefixUnaryOperatorFunctionPattern(Pattern):
     @staticmethod

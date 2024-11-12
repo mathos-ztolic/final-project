@@ -54,6 +54,10 @@ class ListNode(ExpressionNode):
 class TupleNode(ExpressionNode):
     exprs: list[ExpressionNode]
 @dataclass
+class DictionaryNode(ExpressionNode):
+    keys: list[ExpressionNode]
+    values: list[Optional[ExpressionNode]]
+@dataclass
 class GroupNode(ExpressionNode):
     expr: ExpressionNode
 class OperationNode(ExpressionNode): pass
@@ -247,6 +251,25 @@ def parse_expression(
                     split_expression_list(tokg.values)
                 ]
             )
+        ### dictionary ###
+        # empty dictionary
+        case [TokenGroup('{', [ArrowToken('->')])]:
+            return DictionaryNode([], [])
+        # non-empty dictionary #
+        case [TokenGroup('{', [ArrowToken('->'), *dict_expr])]:
+            keys = []
+            values = []
+            current = keys
+            for x in dict_expr:
+                if isinstance(x, ArrowToken):
+                    current = values
+                elif isinstance(x, SeparatorToken):
+                    current = keys
+                elif isinstance(x, UnpackToken):
+                    values.append(None)
+                else:
+                    current.append(parse_expression(x))
+            return DictionaryNode(keys, values)
         ### lambda expression ###
         case [
             TokenGroup('{', [

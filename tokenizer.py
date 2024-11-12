@@ -13,7 +13,8 @@ from tokens import (
     OperatorToken, ArrowToken, UnpackToken, SeparatorToken,
     OpenBracketToken, ClosedBracketToken, UnknownOperatorToken,
     PrefixUnaryOperatorFunctionPattern, PostfixUnaryOperatorFunctionPattern,
-    BinaryOperatorFunctionPattern, TernaryOperatorFunctionPattern, MatchFailed
+    BinaryOperatorFunctionPattern, TernaryOperatorFunctionPattern, MatchFailed,
+    DictionaryPattern
 )
 from constants import (
     NUMBER_LITERAL_TYPES, PrefixUnaryOperator, PostfixUnaryOperator,
@@ -193,6 +194,9 @@ def tokenize_expression(expression: str) -> Generator[Token, int]:
         elif expression[cursor:cursor+2] == '=>':
             yield ArrowToken(expression[cursor:cursor+2])
             cursor += 2
+        elif expression[cursor:cursor+2] == '->':
+            yield ArrowToken(expression[cursor:cursor+2])
+            cursor += 2
         elif (
             not bracket_start_failed and
             expression[cursor] in BRACKET_START_CHARS
@@ -265,6 +269,9 @@ def tokenize_expression(expression: str) -> Generator[Token, int]:
             cursor += 1
         elif expression[cursor] == ',':
             yield SeparatorToken(expression[cursor])
+            cursor += 1
+        elif expression[cursor] == ':':
+            yield ColonToken(':')
             cursor += 1
         elif expression[cursor].isalpha() or expression[cursor] == '_':
             identifier = _tokenize_identifier(expression, cursor)
@@ -400,6 +407,13 @@ def _specify_operator_type(
                 matched = PostfixUnaryOperatorFunctionPattern.match(tokenized)
                 assert matched is not MatchFailed.FAIL
                 tokenized[:] = matched
+            case DictionaryPattern():
+                matched = DictionaryPattern.match(tokenized)
+                assert matched is not MatchFailed.FAIL
+                for x in matched:
+                    if isinstance(x, TokenGroup):
+                        _specify_operator_type(x.values)
+                tokenized[:] = matched
             case _:
                 raise ParserError("Invalid curly brace expression.")
         return tokenized
@@ -412,9 +426,9 @@ def _specify_operator_type(
             continue
         match (p, c, n):
             case (
-                None | ArrowToken() |
-                SeparatorToken() | UnpackToken(),
-                UnknownOperatorToken(), None
+                None | ArrowToken() | SeparatorToken() | UnpackToken(),
+                UnknownOperatorToken(),
+                None | ArrowToken() | SeparatorToken() | UnpackToken()
             ):
                 raise ParserError("An operator alone is not an expression.")
             # mark an operator as a prefix unary operator
