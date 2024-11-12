@@ -376,6 +376,17 @@ class TupleExtension(tuple):
         elif item is BLANK_SLICE:
             return super().__getitem__(slice(None))
         return super().__getitem__(item)
+    
+    def __repr__(self):
+        orig = super().__repr__()[1:-2 if len(self) == 1 else -1]
+        return f'[<{orig}>]'
+
+class DictExtension(dict):
+    
+    def __repr__(self):
+        return '{->}' if not self else '{'+', '.join(
+                f"{key} -> {value}" for key, value in self.items()
+        ) + '}'
 
 class ComplexExtension(complex):
     def __str__(self):
@@ -516,6 +527,8 @@ def coerce(object: list) -> ListExtension: ...
 @overload
 def coerce(object: tuple) -> TupleExtension: ...
 @overload
+def coerce(object: dict) -> DictExtension: ...
+@overload
 def coerce(object: complex) -> ComplexExtension: ...
 @overload
 def coerce(object: slice) -> GeneralSlice: ...
@@ -528,6 +541,8 @@ def coerce(object):
         return ListExtension(object)
     elif type(object) == tuple:
         return TupleExtension(object)
+    elif type(object) == dict:
+        return DictExtension(object)
     elif type(object) == complex:
         return ComplexExtension(object)
     elif type(object) == slice:

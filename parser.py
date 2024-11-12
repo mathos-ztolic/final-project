@@ -145,8 +145,7 @@ class AttributeAccessNode(ExpressionNode):
 
 def split_expression_list(
     tokenized: list[Token | TokenGroup],
-    allow_blank_parts=False,
-    delete_trailing_separator=True
+    allow_blank_parts=False
 ) -> list[list[Token | TokenGroup]]:
     result: list[list[Token | TokenGroup]] = []
     if not tokenized:
@@ -179,12 +178,8 @@ def split_expression_list(
     
     if not result[-1] and isinstance(result[-1], _Unpacked):
         raise InvalidExpressionList("... is not a valid argument.")
-    elif (
-        not result[-1] and not allow_blank_parts and delete_trailing_separator
-    ):
-        # allow single trailing separator
-        del result[-1]
-        #raise InvalidExpressionList("Trailing separator.")
+    elif not result[-1] and not allow_blank_parts:
+        raise InvalidExpressionList("Trailing separator.")
     return result
 
 
@@ -220,26 +215,23 @@ def parse_expression(
         ### identifier ###
         case [IdentifierToken() as tok]:
             return IdentifierNode(tok.value)
-        ### group or tuple ###
+        ### group ###
         case [TokenGroup(bracket='(') as tokg]:
-            if not tokg.values:
-                return TupleNode([])
-            exprs = [
-                UnpackNode(parse_expression(expr)) if
-                isinstance(expr, _Unpacked) else
-                ... if not expr else
-                parse_expression(expr)
-                for expr in
-                split_expression_list(tokg.values, False, False)
-            ]
-            if len(exprs) == 1:
-                return GroupNode(expr=parse_expression(tokg.values))
-            if exprs[-1] is ...:
-                del exprs[-1]
-            return TupleNode(exprs)
+            return GroupNode(expr=parse_expression(tokg.values))
         ### fake group ###
         case [TokenGroup(bracket=None) as tokg]:
             return parse_expression(tokg.values)
+        ### tuple ###
+        case [TokenGroup(bracket='[<') as tokg]:
+            return TupleNode(
+                exprs=[
+                    UnpackNode(parse_expression(expr)) if
+                    isinstance(expr, _Unpacked) else
+                    parse_expression(expr)
+                    for expr in
+                    split_expression_list(tokg.values)
+                ]
+            )
         ### list ###
         case [TokenGroup(bracket='[') as tokg]:
             return ListNode(
@@ -252,10 +244,6 @@ def parse_expression(
                 ]
             )
         ### dictionary ###
-        # empty dictionary
-        case [TokenGroup('{', [ArrowToken('->')])]:
-            return DictionaryNode([], [])
-        # non-empty dictionary #
         case [TokenGroup('{', [ArrowToken('->'), *dict_expr])]:
             keys = []
             values = []
@@ -346,7 +334,7 @@ def parse_expression(
         ### function application, list indexing, attribute access ###
         case [
             (
-                TokenGroup(bracket=('(' | '{' | '[' | None)) |
+                TokenGroup(bracket=('(' | '{' | '[' | '[<' | None)) |
                 IdentifierToken() | StringToken() | NumberToken()
             )
             as first,

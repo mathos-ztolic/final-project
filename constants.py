@@ -4,7 +4,15 @@ from collections import ChainMap
 from collections.abc import Mapping
 from typing import cast
 
-BRACKETS = {'(': ')', '[': ']', '{': '}', '?[': ']', '??[': ']'}
+BRACKETS = {
+    '(': ')',
+    '[': ']',
+    '[<': '>]',
+    '{': '}', 
+    '?[': ']',
+    '??[': ']'
+}
+
 BRACKET_START_CHARS = set(b[0] for b in BRACKETS)
 BRACKET_END_CHARS = set(b[0] for b in BRACKETS.values())
 NUMBER_LITERAL_START_CHARS = '0123456789.'
