@@ -29,6 +29,7 @@ from constants import (
 )
 
 class _Unpacked(list): pass
+class _KWUnpacked(list): pass
 
 class Uncomputed(Enum):
     UNCOMPUTED = 0
@@ -107,7 +108,8 @@ class TernaryOperatorFunctionNode(OperatorFunctionNode):
     args: TernaryArgsType
 @dataclass
 class LambdaFunctionNode(ExpressionNode):
-    parameters: list[str]
+    positional_parameters: list[str]
+    keyword_parameters: list[str]
     expr: ExpressionNode
 @dataclass
 class FunctionApplicationNode(ExpressionNode):
@@ -118,6 +120,7 @@ class FunctionApplicationNode(ExpressionNode):
         ConstantNode | ListNode | Self
     )
     args: list[ExpressionNode]
+    kwargs: list[tuple[Optional[str], ExpressionNode]]
 @dataclass
 class IndexingNode(ExpressionNode):
     indexed: (
@@ -154,8 +157,10 @@ def split_expression_list(
         raise InvalidExpressionList(
             "First element of expression list is a separator."
         )
-    if isinstance(tokenized[0], UnpackToken):
+    if isinstance(tokenized[0], UnpackToken) and tokenized[0].value == '...':
         result.append(_Unpacked())
+    elif isinstance(tokenized[0], UnpackToken):
+        result.append(_KWUnpacked())
     elif isinstance(tokenized[0], SeparatorToken):
         result.append([])
         result.append([])
@@ -165,12 +170,17 @@ def split_expression_list(
         if isinstance(token, SeparatorToken):
             if not result[-1] and isinstance(result[-1], _Unpacked):
                 raise InvalidExpressionList("... is not a valid argument.")
+            if not result[-1] and isinstance(result[-1], _KWUnpacked):
+                raise InvalidExpressionList(".... is not a valid argument.")
             elif not result[-1] and not allow_blank_parts:
                 raise InvalidExpressionList("Multiple separators in a row.")
             result.append([])
             continue
         elif isinstance(token, UnpackToken) and not result[-1]:
-            result[-1] = _Unpacked()
+            if token.value == '...':
+                result[-1] = _Unpacked()
+            else:
+                result[-1] = _KWUnpacked()
             continue
         elif isinstance(token, UnpackToken) and result[-1]:
             raise InvalidExpressionList("Unpack in the middle of argument.")
@@ -178,6 +188,8 @@ def split_expression_list(
     
     if not result[-1] and isinstance(result[-1], _Unpacked):
         raise InvalidExpressionList("... is not a valid argument.")
+    elif not result[-1] and isinstance(result[-1], _KWUnpacked):
+        raise InvalidExpressionList(".... is not a valid argument.")
     elif not result[-1] and not allow_blank_parts:
         raise InvalidExpressionList("Trailing separator.")
     return result
@@ -223,28 +235,32 @@ def parse_expression(
             return parse_expression(tokg.values)
         ### tuple ###
         case [TokenGroup(bracket='[<') as tokg]:
-            return TupleNode(
-                exprs=[
-                    UnpackNode(parse_expression(expr)) if
-                    isinstance(expr, _Unpacked) else
-                    parse_expression(expr)
-                    for expr in
-                    split_expression_list(tokg.values)
-                ]
-            )
+            exprs = []
+            for expr in split_expression_list(tokg.values):
+                if isinstance(expr, _KWUnpacked):
+                    raise ParserError(
+                        "Keyword unpacking not allowed in tuple."
+                    )
+                elif isinstance(expr, _Unpacked):
+                    exprs.append(UnpackNode(parse_expression(expr)))
+                else:
+                    exprs.append(parse_expression(expr))
+            return TupleNode(exprs)
         ### list ###
         case [TokenGroup(bracket='[') as tokg]:
-            return ListNode(
-                exprs=[
-                    UnpackNode(parse_expression(expr)) if
-                    isinstance(expr, _Unpacked) else
-                    parse_expression(expr)
-                    for expr in
-                    split_expression_list(tokg.values)
-                ]
-            )
+            exprs = []
+            for expr in split_expression_list(tokg.values):
+                if isinstance(expr, _KWUnpacked):
+                    raise ParserError(
+                        "Keyword unpacking not allowed in list."
+                    )
+                elif isinstance(expr, _Unpacked):
+                    exprs.append(UnpackNode(parse_expression(expr)))
+                else:
+                    exprs.append(parse_expression(expr))
+            return ListNode(exprs)
         ### dictionary ###
-        case [TokenGroup('{', [ArrowToken('->'), *dict_expr])]:
+        case [TokenGroup('{', [ArrowToken('='), *dict_expr])]:
             keys = []
             values = []
             current = keys
@@ -254,6 +270,10 @@ def parse_expression(
                 elif isinstance(x, SeparatorToken):
                     current = keys
                 elif isinstance(x, UnpackToken):
+                    if x.value == '...':
+                        raise ParserError(
+                            "Iterable unpacking not allowed in dictionary."
+                        )
                     values.append(None)
                 else:
                     current.append(parse_expression(x))
@@ -266,20 +286,29 @@ def parse_expression(
                 TokenGroup(None, expression)
             ])
         ]:
-            final_parameters = []
-            next_is_variable = False
+            positional_parameters = []
+            keyword_parameters = []
+            current_parameters = positional_parameters
+            next_variable = ''
             for parameter in parameters:
                 if isinstance(parameter, UnpackToken):
-                    next_is_variable = True
+                    next_variable = parameter.value
+                    if next_variable == '....':
+                        current_parameters = keyword_parameters
+                    continue
+                if isinstance(parameter, SeparatorToken):
+                    current_parameters = keyword_parameters
                     continue
                 assert isinstance(parameter, IdentifierToken)
-                if next_is_variable:
-                    next_is_variable = False
-                    final_parameters.append('...'+parameter.value)
+                if next_variable:
+                    current_parameters.append(next_variable+parameter.value)
+                    next_variable = ''
                 else:
-                    final_parameters.append(parameter.value)
+                    current_parameters.append(parameter.value)
             return LambdaFunctionNode(
-                final_parameters, parse_expression(expression)
+                positional_parameters,
+                keyword_parameters,
+                parse_expression(expression)
             )
         ### prefix unary operator function ###
         case [TokenGroup('{', [OperatorToken(op), TokenGroup('{', [])])]:
@@ -373,16 +402,37 @@ def parse_expression(
                     )
                     previous_arrow = None
                 elif isinstance(args, TokenGroup) and args.bracket == '(':
-                    node = FunctionApplicationNode(
-                        node,
-                        [
-                            UnpackNode(parse_expression(expr))
-                            if isinstance(expr, _Unpacked) else
-                            parse_expression(expr)
-                            for expr in
-                            split_expression_list(args.values)
-                        ]
-                    )
+                    fn_args = []
+                    fn_kwargs = []
+                    for expr in split_expression_list(args.values):
+                        if isinstance(expr, _Unpacked):
+                            fn_args.append(UnpackNode(parse_expression(expr)))
+                        elif isinstance(expr, _KWUnpacked):
+                            fn_kwargs.append(
+                                (None, UnpackNode(parse_expression(expr)))
+                            )
+                        else:
+                            match expr:
+                                # pep 736 because why not
+                                case [
+                                    IdentifierToken(ident),
+                                    ArrowToken('=')
+                                ]:
+                                    fn_kwargs.append(
+                                        (ident, IdentifierNode(ident))
+                                    )
+                                case [
+                                    IdentifierToken(ident),
+                                    ArrowToken('='),
+                                    *rest
+                                ]:
+                                    fn_kwargs.append(
+                                        (ident, parse_expression(rest))
+                                    )
+                                case _:
+                                    fn_args.append(parse_expression(expr))
+
+                    node = FunctionApplicationNode(node, fn_args, fn_kwargs)
                 else:
                     assert isinstance(args, TokenGroup)
                     null_conditional_level = (
@@ -390,23 +440,26 @@ def parse_expression(
                         2 if args.bracket == '??[' else
                         0
                     )
-                    node = IndexingNode(
-                        node,
-                        [
-                            UnpackNode(parse_expression(expr))
-                            if isinstance(expr, _Unpacked) else
-                            parse_expression(expr)
-                            if expr else
-                            None
-                            for expr in
-                            split_expression_list(args.values, True)
-                        ],
-                        null_conditional_level
-                    )
+
+                    exprs = []
+                    for expr in split_expression_list(tokg.values, True):
+                        if isinstance(expr, _KWUnpacked):
+                            raise ParserError(
+                                "Keyword unpacking not allowed in index."
+                            )
+                        elif isinstance(expr, _Unpacked):
+                            exprs.append(UnpackNode(parse_expression(expr)))
+                        elif expr:
+                            exprs.append(parse_expression(expr))
+                        else:
+                            exprs.append(None)
+                    node = IndexingNode(node, exprs, null_conditional_level)
             if previous_arrow:
                 raise ParserError("Trailing arrow.")
             return node
-        case values if UnpackToken('...') in values:
+        case (
+            values
+        ) if UnpackToken('...') in values or UnpackToken('....') in values:
             raise ParserError("Unpacking is not allowed here.")
         ### complex expression ###
         case _:

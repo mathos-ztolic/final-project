@@ -384,8 +384,8 @@ class TupleExtension(tuple):
 class DictExtension(dict):
     
     def __repr__(self):
-        return '{->}' if not self else '{'+', '.join(
-                f"{key!r} -> {value!r}" for key, value in self.items()
+        return '{=}' if not self else '{'+', '.join(
+                f"{key!r} = {value!r}" for key, value in self.items()
         ) + '}'
 
 class StringExtension(str):
@@ -686,10 +686,12 @@ class CallableWrapper(CallableObject):
             if not (args_pre or args_mid or args_post):
                 raise ValueError("Too few arguments.")
         # a non method is wrapped by a bound/unbound method, use the
-        # a non method is wrapped by a bound/unbound method, use the
         # state of the wrapper, not the wrapped
         if self.__method_type__ is not CallableType.NON_METHOD:
-            kwargs.update(callable_type=self.__method_type__)
+            kwargs.setdefault('*', {}).update(
+                callable_type=self.__method_type__
+            )
+        
         return wrapped_callable(
             *args_pre, *args_mid, *args_post, **kwargs
         )
@@ -729,7 +731,9 @@ class CallableWrapper(CallableObject):
         elif self.__method_type__ is CallableType.UNBOUND_METHOD:
             new = copy.copy(self)
             new.__wrapped_callable__ = partial(
-                new.__wrapped_callable__, this=obj, cls=objtype
+                new.__wrapped_callable__, **{
+                    '*': {"this": obj, "cls": objtype}
+                }
             )
             new.__method_type__ = CallableType.BOUND_METHOD
             new.__wrapped_callable_type__ = "bound lambda method"
@@ -737,7 +741,9 @@ class CallableWrapper(CallableObject):
         elif self.__method_type__ is CallableType.UNBOUND_CLASS_METHOD:
             new = copy.copy(self)
             new.__wrapped_callable__ = partial(
-                new.__wrapped_callable__, cls=objtype
+                new.__wrapped_callable__, **{
+                    '*': {"cls": objtype}
+                }
             )
             new.__wrapped_callable_type__ = "bound lambda class method"
             new.__method_type__ = CallableType.BOUND_CLASS_METHOD

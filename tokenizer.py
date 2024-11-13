@@ -182,6 +182,9 @@ def tokenize_expression(expression: str) -> Generator[Token, int]:
             number = _tokenize_number(expression, cursor)
             yield NumberToken(number)
             cursor += len(number)
+        elif expression[cursor:cursor+4] == '....':
+            yield UnpackToken('....')
+            cursor += 4
         elif expression[cursor:cursor+3] == '...':
             yield UnpackToken('...')
             cursor += 3
@@ -267,11 +270,11 @@ def tokenize_expression(expression: str) -> Generator[Token, int]:
         elif expression[cursor] == '.':
             yield ArrowToken(expression[cursor])
             cursor += 1
+        elif expression[cursor] == '=':
+            yield ArrowToken(expression[cursor])
+            cursor += 1
         elif expression[cursor] == ',':
             yield SeparatorToken(expression[cursor])
-            cursor += 1
-        elif expression[cursor] == ':':
-            yield ColonToken(':')
             cursor += 1
         elif expression[cursor].isalpha() or expression[cursor] == '_':
             identifier = _tokenize_identifier(expression, cursor)
@@ -300,15 +303,20 @@ def get_lambda_divider_index(tokenized: list[Token | TokenGroup]) -> int:
     match tokenized:
         case [UnpackToken(), *_]: pass
         case [IdentifierToken(), *_]: pass
+        case [SeparatorToken(), *_]: pass
         case [ArrowToken(value="=>"), *_]: pass
         case _:
             raise InvalidLambdaExpression(
                 "Lambda expression must start with identifiers, a variable "
-                "argument identifier, or =>."
+                "argument identifier, a comma, or =>."
             )
     divider_index = None
-    variable_identifier_encountered = False
-    next_is_variable = False
+    positional_variable_identifier_encountered = False
+    keyword_variable_identifier_encountered = False
+    comma_encountered = False
+    next_is_positional_variable = False
+    next_is_keyword_variable = False
+    identifiers: set[str] = set()
     for i, tok in enumerate(tokenized):
         if ( 
             isinstance(tok, ArrowToken) and
@@ -316,42 +324,81 @@ def get_lambda_divider_index(tokenized: list[Token | TokenGroup]) -> int:
             divider_index is not None
         ):
             raise InvalidLambdaExpression("Multiple lambda dividers.")
+        if divider_index is not None:
+            continue
         if ( 
             isinstance(tok, ArrowToken) and
-            tok.value == '=>' and
-            divider_index is None
+            tok.value == '=>'
         ):
             divider_index = i
-            if next_is_variable:
+            if next_is_positional_variable or next_is_keyword_variable:
                 raise InvalidLambdaExpression(
                     "Expected an identifier after variable argument marker."
                 )
             continue
+        # invalid states
+        if keyword_variable_identifier_encountered:
+            raise InvalidLambdaExpression(
+                "Variable keyword parameter must be the last parameter before "
+                "the lambda divider."
+            )
         if (
-            variable_identifier_encountered and
-            isinstance(tok, UnpackToken) and
-            divider_index is None
+            positional_variable_identifier_encountered and
+            isinstance(tok, UnpackToken) and tok.value == '...'
         ):
             raise InvalidLambdaExpression(
-                "Multiple variable argument identifiers."
+                "Multiple positional variable argument identifiers."
             )
-        elif (
-            not variable_identifier_encountered and
-            isinstance(tok, UnpackToken)
+        if (
+            (next_is_positional_variable or next_is_keyword_variable) and
+            isinstance(tok, (SeparatorToken, UnpackToken))
         ):
-            next_is_variable = True
-            variable_identifier_encountered = True
+            raise InvalidLambdaExpression(
+                "Expected an identifier after variable argument marker."
+            )
+        if isinstance(tok, SeparatorToken) and comma_encountered:
+            raise InvalidLambdaExpression(
+                "Only one comma allowed before lambda divider."
+            )
+        
+        if isinstance(tok, SeparatorToken):
+            comma_encountered = True
             continue
-        if next_is_variable:
-            next_is_variable = False
         if (
-            not isinstance(tok, IdentifierToken) and
-            divider_index is None
+            not positional_variable_identifier_encountered and
+            isinstance(tok, UnpackToken) and tok.value == '...'
         ):
+            next_is_positional_variable = True
+            continue
+        if (
+            not keyword_variable_identifier_encountered and
+            isinstance(tok, UnpackToken) and tok.value == '....'
+        ):
+            next_is_keyword_variable = True
+            continue
+            
+        if next_is_positional_variable:
+            next_is_positional_variable = False
+            positional_variable_identifier_encountered = True
+        if next_is_keyword_variable:
+            next_is_keyword_variable = False
+            keyword_variable_identifier_encountered = True
+        
+        if not isinstance(tok, IdentifierToken):
             raise InvalidLambdaExpression(
-                "Only identifiers or a variable argument identifier allowed "
-                "before lambda divider."
+                "Only identifiers, a single comma, and positional/variable "
+                "identifiers allowed before lambda divider."
             )
+        if tok.value in ('this', 'cls'):
+            raise InvalidLambdaExpression(
+                f"\"{tok.value}\" is not allowed as a parameter name."
+            )
+        if tok.value in identifiers:
+            raise InvalidLambdaExpression(
+                "Same parameter name repeated multiple times."
+            )
+        identifiers.add(tok.value)
+
     assert divider_index is not None
     return divider_index
 

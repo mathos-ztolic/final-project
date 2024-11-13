@@ -513,59 +513,104 @@ def execute_tree(node: ExpressionNode, scope = global_scope):
             return node.result
         case LambdaFunctionNode():
             variable_arg_index = next((
-                i for i,x in enumerate(node.parameters)
+                i for i,x in enumerate(node.positional_parameters)
                 if x.startswith('...')
             ), None)
             def caller(
                 *args,
+                **kwargs
+            ):
                 # these are defaults for function calls
                 # the CallableWrapper's descriptor will
                 # modify them if invoked
-                this=Missing.MISSING,
-                cls=Missing.MISSING,
-                callable_type=CallableType.NON_METHOD
-            ):
-                parameters = node.parameters[:]
+                # invalid identifier to reduce the chance of being set
+                # as a kwarg
+                special_kwargs = kwargs.pop('*', {})
+                this = special_kwargs.pop('this', Missing.MISSING)
+                cls = special_kwargs.pop('cls', Missing.MISSING)
+                callable_type = special_kwargs.pop(
+                    'callable_type', CallableType.NON_METHOD
+                )
+                pparameters = node.positional_parameters[:]
+                kparameters = node.keyword_parameters[:]
                 args = list(args)
                 if callable_type is CallableType.UNBOUND_METHOD:
-                    parameters.insert(0, 'this')
+                    pparameters.insert(0, 'this')
                 elif callable_type is CallableType.UNBOUND_CLASS_METHOD:
-                    parameters.insert(0, 'cls')
+                    pparameters.insert(0, 'cls')
                     
                 if variable_arg_index is not None:
-                    if len(args) < len(parameters) - 1:
+                    if len(args) < len(pparameters) - 1:
                         raise ValueError("Too few arguments.")
-                elif len(args) < len(parameters):
+                elif len(args) < len(pparameters):
                     raise ValueError("Too few arguments.")
-                elif len(args) > len(parameters):
+                elif len(args) > len(pparameters):
                     raise ValueError("Too many arguments.")
+
+                new_kwargs = {}
+                if kparameters:
+                    if kparameters[-1].startswith('....'):
+                        new_kwargs[kparameters[-1][4:]] = {}
+                        for k in kwargs:
+                            if k not in kparameters:
+                                if k in pparameters:
+                                    raise ValueError(
+                                        f"{k} is a positional argument."
+                                    )
+                                new_kwargs[kparameters[-1][4:]][k] = kwargs[k]
+                            else:
+                                new_kwargs[k] = kwargs[k]
+                        for k in kparameters[:-1]:
+                            if k not in new_kwargs:
+                                raise ValueError(
+                                    f"Expected keyword argument {k}."
+                                )
+                    else:
+                        for k in kwargs:
+                            if k not in kparameters:
+                                raise ValueError(
+                                    f"Unknown keyword argument {k}."
+                                )
+                            else:
+                                new_kwargs[k] = kwargs[k]
+                        for k in kparameters:
+                            if k not in new_kwargs:
+                                raise ValueError(
+                                    f"Expected keyword argument {k}."
+                                )
+                elif kwargs:
+                    raise ValueError(
+                        "Function does not take keyword arguments."
+                    )
                 
                 if variable_arg_index is not None:
-                    before_va = len(parameters[:variable_arg_index])
-                    after_va = len(parameters[variable_arg_index+1:])
+                    before_va = len(pparameters[:variable_arg_index])
+                    after_va = len(pparameters[variable_arg_index+1:])
                     new_scope = scope.new_child({
                         **{
-                            parameters[i]: args[i]
+                            pparameters[i]: args[i]
                             for i in range(before_va)
                         },
-                        parameters[variable_arg_index][3:]: coerce([
+                        pparameters[variable_arg_index][3:]: coerce(tuple(
                             args[i] for i in range(
                                 before_va, len(args)-after_va
                             )
-                        ]),
+                        )),
                         **{
-                            parameters[variable_arg_index+1+i]: args[
+                            pparameters[variable_arg_index+1+i]: args[
                                 len(args)-after_va+i
                             ]
                             for i in range(after_va)
-                        }
+                        },
+                        **new_kwargs
                     })
                 else:
                     new_scope = scope.new_child(
                         {
-                            parameters[i]: args[i]
+                            pparameters[i]: args[i]
                             for i in range(len(args))
-                        }
+                        },
+                        **new_kwargs
                     )
                 if callable_type is CallableType.UNBOUND_METHOD:
                     new_scope['this'] = args[0]
@@ -687,13 +732,20 @@ def execute_tree(node: ExpressionNode, scope = global_scope):
                 node.null_conditional_failed = True
                 return
             args = []
+            kwargs = {}
             for arg in node.args:
                 if isinstance(arg, UnpackNode):
-                    for arg2 in execute_tree(arg.expr, scope):
-                        args.append(arg2)
+                    args.extend(execute_tree(arg.expr, scope))
                 else:
                     args.append(execute_tree(arg, scope))
-            node.result = coerce(function(*args))
+            for key, value in node.kwargs:
+                if key is None:
+                    kwargs.update(execute_tree(value.expr, scope))
+                else:
+                    kwargs[coerce(key)] = execute_tree(value, scope)
+            if '*' in kwargs:
+                raise ValueError("The keyword argument '*' is reserved.")
+            node.result = coerce(function(*args, **kwargs))
             return node.result
         case IndexingNode():
             indexed = execute_tree(node.indexed, scope)

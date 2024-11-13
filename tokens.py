@@ -78,7 +78,7 @@ class DictionaryPattern(Pattern):
         if (
             len(obj) == 1
             and isinstance(obj[0], ArrowToken)
-            and cast(ArrowToken,  obj[0]).value == '->'
+            and cast(ArrowToken,  obj[0]).value == '='
         ):
             return cast(list[Token | TokenGroup], obj)
         result = [TokenGroup(None, [])]
@@ -87,7 +87,7 @@ class DictionaryPattern(Pattern):
         is_unpack = False
         for tok in obj:
             if isinstance(tok, ArrowToken) and (
-                tok.value != '->' or
+                tok.value != '=' or
                 not current or
                 (len(result) - 3*unpacks) % 4 != 1
             ) or isinstance(tok, SeparatorToken) and (
@@ -117,7 +117,7 @@ class DictionaryPattern(Pattern):
             return MatchFailed.FAIL
         # make it start with an arrow to mark it as a dictionary for the
         # parser, easier to check for the case
-        result.insert(0, ArrowToken('->'))
+        result.insert(0, ArrowToken('='))
         return result
 
 
