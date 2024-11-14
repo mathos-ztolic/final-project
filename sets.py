@@ -3,6 +3,7 @@ from collections.abc import Container, Sequence
 from typing import Optional, overload, Self, Any, NoReturn
 import itertools
 from custom_types import coerce, GeneralSlice, BLANK_SLICE, BlankSlice
+import math
 
 # set of all objects that pass a test
 class SetOf:
@@ -19,38 +20,22 @@ class SetOf:
 def Nullable(s):
     return SetUnion([None], s)
 
-class Unsliceable:
-    def __init__(self, set: Container):
-        if not isinstance(set, Container):
-            raise ValueError("Unsliceable must get a container.")
-        if not hasattr(set, '__getitem__'):
-            raise ValueError(
-                "Set does not provide a way to get items, "
-                "and is thus already unsliceable."
-            )
-        self.set = set
-
-    def __contains__(self, elem):
-        return elem in self.set
-
-    def __getitem__(self, item):
-        # this works fine unless you have something
-        # weird like a set of slices tha can be sliced somehow
-        if item not in self.set:
-            raise IndexError(f"{item} ∉ {self.set}")
-        return self.set[item]
-
 class EmptySet:
     def __contains__(self, elem):
         return False
     def __repr__(self):
         return '∅'
+    def __call__(self, item) -> NoReturn:
+        raise ValueError(f"{item} ∉ {self}")
 
 class UniversalSet:
     def __contains__(self, elem):
         return True
     def __repr__(self):
         return 'ξ'
+    def __call__(self, item) -> Any:
+        return item
+
 
 class Sets:
     def __contains__(self, elem):
@@ -65,13 +50,12 @@ class Integers:
             return False
         return elem.imag == 0 and float(elem.real).is_integer()
     
-    
     @overload
     def __getitem__(self, item: BlankSlice) -> Self: ...
     @overload
     def __getitem__(self, item: slice | GeneralSlice) -> SlicedIntegers: ...
     @overload
-    def __getitem__(self, item: Any) -> int: ...
+    def __getitem__(self, item: Any) -> NoReturn: ...
     
     def __getitem__(self, item):
         if item is BLANK_SLICE:
@@ -82,10 +66,14 @@ class Integers:
             )
         if isinstance(item, GeneralSlice):
             return SlicedIntegers(item)
-        if item not in self:
-            raise IndexError(f"{item} ∉ {self}")
-        return int(item.real)
+
+        raise IndexError(f"Only slicing is supported.")
     
+    def __call__(self, item: Any) -> int:
+        if item not in self:
+            raise ValueError(f"{item} ∉ {self}")
+        return int(item.real)
+
     def __repr__(self):
         return 'ℤ'
 
@@ -102,10 +90,10 @@ class SlicedIntegers:
             start not in Nullable(INTEGERS) or
             stop not in Nullable(INTEGERS) or
             divisible_by not in Nullable(
-                SetUnion(LISTS[::INTEGERS], INTEGERS)
+                SetUnion(Star(INTEGERS), INTEGERS)
             ) or
             not_divisible_by not in Nullable(
-                SetUnion(LISTS[::INTEGERS], INTEGERS)
+                SetUnion(Star(INTEGERS), INTEGERS)
             )
         ):
             raise ValueError(
@@ -116,13 +104,13 @@ class SlicedIntegers:
         self.stop = stop
         self.divisible_by = set(
             [] if divisible_by is None else
-            [divisible_by] if divisible_by not in LISTS else
-            divisible_by
+            divisible_by if isinstance(divisible_by, Sequence) else
+            [divisible_by]
         )
         self.not_divisible_by = set(
             [] if not_divisible_by is None else
-            [not_divisible_by] if not_divisible_by not in LISTS else
-            not_divisible_by
+            not_divisible_by if isinstance(not_divisible_by, Sequence) else
+            [not_divisible_by]
         )
 
     def __contains__(self, e):
@@ -142,7 +130,7 @@ class SlicedIntegers:
     @overload
     def __getitem__(self, item: slice | GeneralSlice) -> Self: ...
     @overload
-    def __getitem__(self, item: Any) -> int: ...
+    def __getitem__(self, item: Any) -> NoReturn: ...
     
     def __getitem__(self, item):
         if item is BLANK_SLICE:
@@ -164,19 +152,22 @@ class SlicedIntegers:
             )
             divisible_by = list(self.divisible_by.union(
                 [] if item.elements.get(2) is None else
-                item.elements[2] if item.elements[2] in LISTS else
+                item.elements[2] if isinstance(item.elements[2], Sequence) else
                 [item.elements[2]]
             ))
             not_divisible_by = list(self.not_divisible_by.union(
                 [] if item.elements.get(3) is None else
-                item.elements[3] if item.elements[3] in LISTS else
+                item.elements[3] if isinstance(item.elements[3], Sequence) else
                 [item.elements[3]]
             ))
             return SlicedIntegers(
                 GeneralSlice(start, stop, divisible_by, not_divisible_by)
             )
+        raise IndexError(f"Only slicing is supported.")
+    
+    def __call__(self, item: Any) -> int:
         if item not in self:
-            raise IndexError(f"{item} ∉ {self}.")
+            raise ValueError(f"{item} ∉ {self}")
         return int(item.real)
     
     def __repr__(self):
@@ -217,20 +208,26 @@ class Reals:
     @overload
     def __getitem__(self, item: slice | GeneralSlice) -> SlicedReals: ...
     @overload
-    def __getitem__(self, item: Any) -> float: ...
+    def __getitem__(self, item: Any) -> NoReturn: ...
 
     def __getitem__(self, item):
         if item is BLANK_SLICE:
             return self
         if isinstance(item, slice):
-            return self.__getitem__(
-                GeneralSlice(item.start, item.stop, item.step)
-            )
+            if item.step is not None:
+                return self.__getitem__(
+                    GeneralSlice(item.start, item.stop, item.step)
+                )
+            return self.__getitem__(GeneralSlice(item.start, item.stop))
         if isinstance(item, GeneralSlice):
             return SlicedReals(item)
+        raise IndexError(f"Only slicing is supported.")
+    
+    def __call__(self, item: Any) -> float:
         if item not in self:
-            raise IndexError(f"{item} ∉ {self}")
+            raise ValueError(f"{item} ∉ {self}")
         return float(item.real)
+
     def __repr__(self):
         return 'ℝ'
 
@@ -241,7 +238,7 @@ class SlicedReals:
     def __init__(self, slice):
         if len(slice.elements) > 2:
             raise ValueError(
-                "Real slices have a maximum of 2 non-blank elements."
+                "Real slices have a maximum of 2 elements."
             )
         start = slice.elements.get(0)
         stop = slice.elements.get(1)
@@ -262,15 +259,17 @@ class SlicedReals:
     @overload
     def __getitem__(self, item: slice | GeneralSlice) -> Self: ...
     @overload
-    def __getitem__(self, item: Any) -> float: ...
+    def __getitem__(self, item: Any) -> NoReturn: ...
     
     def __getitem__(self, item):
         if item is BLANK_SLICE:
             return self
         if isinstance(item, slice):
-            return self.__getitem__(
-                GeneralSlice(item.start, item.stop, item.step)
-            )
+            if item.step is not None:
+                return self.__getitem__(
+                    GeneralSlice(item.start, item.stop, item.step)
+                )
+            return self.__getitem__(GeneralSlice(item.start, item.stop))
         if isinstance(item, GeneralSlice):
             start = (
                 item.elements.get(0) if self.start is None else
@@ -283,8 +282,11 @@ class SlicedReals:
                 min(self.stop, item.elements[1])
             )
             return SlicedReals(GeneralSlice(start, stop))
+        raise IndexError(f"Only slicing is supported.")
+    
+    def __call__(self, item: Any) -> float:
         if item not in self:
-            raise IndexError(f"{item} ∉ {self}")
+            raise ValueError(f"{item} ∉ {self}")
         return float(item.real)
     
     def __repr__(self):
@@ -306,95 +308,28 @@ class Complex:
     @overload
     def __getitem__(self, item: slice | GeneralSlice) -> NoReturn: ...
     @overload
-    def __getitem__(self, item: Any) -> complex: ...
+    def __getitem__(self, item: Any) -> NoReturn: ...
+    
+    def __call__(self, item: Any) -> complex:
+        if item not in self:
+            raise ValueError(f"{item} ∉ {self}")
+        return complex(item)
 
     def __getitem__(self, item):
-        if isinstance(item, (slice, GeneralSlice)):
-            raise ValueError("You cannot slice complex numbers right now.")
         if item is BLANK_SLICE:
             return self
-        if item not in self:
-            raise IndexError(f"{item} ∉ {self}")
-        return complex(item)
+        raise ValueError("Only blank slices are supported for now.")
         
 class Functions:
     def __contains__(self, e):
         return callable(e)
     def __repr__(self):
         return 'Φ'
-
-class Lists:
-    
-    def __contains__(self, e):
-        return isinstance(e, list)
-    
-    @overload
-    def __getitem__(self, item: BlankSlice) -> Self: ...
-    @overload
-    def __getitem__(self, item: slice | GeneralSlice) -> SlicedLists: ...
-    @overload
-    def __getitem__(self, item: Any) -> list[Any]: ...
-
-    def __getitem__(self, item):
-        if item is BLANK_SLICE:
-            return self
-        if isinstance(item, slice):
-            return self.__getitem__(
-                GeneralSlice(item.start, item.stop, item.step)
-            )
-        if isinstance(item, GeneralSlice):
-            return SlicedLists(item)
-        if item not in self:
-            raise IndexError(f"{item} ∉ {self}")
+    def __call__[T](self, item: T) -> T:
+        if not callable(item):
+            raise ValueError(f"{item} ∉ {self}")
         return item
-    
-    def __repr__(self):
-        return 'Λ'
 
-
-class SlicedLists:
-    
-    minimum: int
-    maximum: float
-    elt_type: Container
-    
-    def __init__(self, slice):
-        if len(slice.elements) > 3:
-            raise ValueError("Sliced lists take a maximum of 3 elements.")
-        start = slice.elements.get(0)
-        stop = slice.elements.get(1)
-        elt_type = slice.elements.get(2)
-        if start not in Nullable(INTEGERS):
-            raise ValueError("Start has to be an integer/blank.")
-        if stop not in Nullable(INTEGERS):
-            raise ValueError("Stop has to be an integer/blank.")
-        self.minimum = start or 0
-        self.maximum = stop or float('inf')
-        self.elt_type = elt_type
-
-    def __contains__(self, e):
-        if e not in LISTS:
-            return False
-        if len(e) < self.minimum or len(e) > self.maximum:
-            return False
-        if self.elt_type is None:
-            return True
-        for x in e:
-            if x not in self.elt_type:
-                return False
-        return True
-    
-    def __repr__(self):
-        minimum = '' if self.minimum == 0 else str(self.minimum)
-        maximum = '' if self.maximum == float('inf') else str(self.maximum)
-        if not minimum and not maximum:
-            mark = 'Λ'
-        else:
-            mark = f'Λ[{minimum}:{maximum}]'
-        if self.elt_type is None:
-            return f'{mark}'
-        return f'{{e∈{mark} | m∈{self.elt_type} ∀m∈e}}'
-        
 class SetUnion:
     
     sets: tuple[Container, ...]
@@ -411,11 +346,19 @@ class SetUnion:
             self.sets = (set1, *set2.sets)
         else:
             self.sets = (set1, set2)
+
     def __contains__(self, e):
         for s in self.sets:
             if e in s:
                 return True
         return False
+
+    def __call__[T](self, item: T) -> T:
+        for s in self.sets:
+            if item in s:
+                return s(item)
+        raise ValueError(f"{item} ∉ {self}")
+
     def __repr__(self):
         return f"({' ∪ '.join(str(s) for s in self.sets)})"
 
@@ -440,6 +383,12 @@ class SetIntersection:
             if e not in s:
                 return False
         return True
+    
+    def __call__[T](self, item: T) -> T:
+        if item not in self:
+            raise ValueError(f"{item} ∉ {self}")
+        return self.sets[0](item)
+
     def __repr__(self):
         return f"({' ∩ '.join(str(s) for s in self.sets)})"
 
@@ -459,8 +408,13 @@ class SetDifference:
             if e in s:
                 return False
         return True
+    
+    def __call__[T](self, item: T) -> T:
+        if item not in self:
+            raise ValueError(f"{item} ∉ {self}")
+        return self.sets[0](item)
+
     def __repr__(self):
-        
         return '(' + ' \\ '.join(str(s) for s in self.sets) + ')'
 
 class SetSymmetricDifference:
@@ -479,12 +433,27 @@ class SetSymmetricDifference:
             self.sets = (set1, *set2.sets)
         else:
             self.sets = (set1, set2)
+
     def __contains__(self, e):
         e_count = 0
         for s in self.sets:
             if e in s:
                 e_count += 1
         return e_count % 2 == 1
+    
+    def __call__[T](self, item: T) -> T:
+        first = None
+        e_count = 0
+        for s in self.sets:
+            if e in s:
+                e_count += 1
+                if first is None:
+                    first = s
+        if e_count % 2 == 1:
+            assert first is not None
+            return first(item)
+        raise ValueError(f"{item} ∉ {self}")
+
     def __repr__(self):
         return f"({' ⊕ '.join(str(s) for s in self.sets)})"
     
@@ -569,6 +538,7 @@ class SetCartesianProduct:
             else:
                 sets.append(s)
         self.sets = tuple(sets)
+
     def __contains__(self, e):
         if not isinstance(e, list):
             return False
@@ -707,8 +677,11 @@ class Between(_VariableCartesianProduct):
 
 COMPLEX = Complex()
 FUNCTIONS = Functions()
-LISTS = Lists()
 REALS = Reals()
+POSITIVE_REALS = REALS[math.nextafter(0, math.inf):]
+NEGATIVE_REALS = REALS[:math.nextafter(0, -math.inf)]
+NONNEGATIVE_REALS = REALS[0:]
+NONPOSITIVE_REALS = REALS[:0]
 INTEGERS = Integers()
 NATURALS = INTEGERS[1:]
 NATURALS_WITH_ZERO = INTEGERS[0:]

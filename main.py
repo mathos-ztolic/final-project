@@ -27,7 +27,7 @@ if __name__ == '__main__':
                 result = execute(expression[:-1])
                 print(result)
                 break
-            except (MathError, AssertionError, Exception) as e:
+            except (MathError, AssertionError) as e:
                 traceback.print_exception(e)
                 break
             except Exception as e:

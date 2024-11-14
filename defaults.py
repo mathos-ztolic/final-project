@@ -6,10 +6,10 @@ import random
 from typing import Callable
 import itertools
 from sets import (
-    UNIVERSAL_SET, INTEGERS, NATURALS, NATURALS_WITH_ZERO, REALS, LISTS,
+    UNIVERSAL_SET, INTEGERS, NATURALS, NATURALS_WITH_ZERO, REALS,
+    POSITIVE_REALS, NEGATIVE_REALS, NONNEGATIVE_REALS, NONPOSITIVE_REALS,
     FUNCTIONS, COMPLEX, EMPTY_SET, SETS, QuestionMark, Star, Plus,
-    AtLeast, AtMost, Between, Exactly, Pack, Unpack, SetOf,
-    Unsliceable
+    AtLeast, AtMost, Between, Exactly, Pack, Unpack, SetOf, SetDifference
 )
 from custom_types import (
     CallableWrapper, GeneralSlice, BLANK_SLICE, Vector,
@@ -56,71 +56,133 @@ def remap(v, i, I, o=None, O=None):
     return o + (O - o) * ((v - i) / (I - i))
 
 
-function_signatures = {
-    'sqrt': "[0,∞⟩ -> ℝ or ℂ -> ℂ",
-    'cbrt': "ℝ -> ℝ or ℂ -> ℂ",
-    'root_': "(ℝ\\{0})×ℝ -> ℝ",
-    'argument': "ℂ -> [-π,π]",
-    'rect': "ℝ×ℝ -> ℝ",
-    'sin': "ℝ -> ℝ or ℂ -> ℂ",
-    'cos': "ℝ -> ℝ or ℂ -> ℂ",
-    'tan': "ℝ\\{π/2 + nπ | n∈ℤ} -> ℝ or ℂ\\{π/2 + nπ | n∈ℤ} -> ℂ",
-    'arcsin': "[-1,1] -> ℝ or ℂ -> ℂ",
-    'arccos': "[-1,1] -> ℝ or ℂ -> ℂ",
-    'arctan': "ℝ -> ℝ or ℂ -> ℂ",
-    'sinh': "ℝ -> ℝ or ℂ -> ℂ",
-    'cosh': "ℝ -> ℝ or ℂ -> ℂ",
-    'tanh': "ℝ -> ℝ or ℂ -> ℂ",
-    'arcsinh': "ℝ -> ℝ or ℂ -> ℂ",
-    'arccosh': "[1,∞⟩ -> ℝ or ℂ -> ℂ",
-    'arctanh': "⟨-1,1⟩ -> ℝ or ℂ -> ℂ\\{z∈ℂ | z² = 1} -> ℂ",
-    'atan2': "ℝ×ℝ -> ℝ",
-    'min': "Ord a => Λ[1,,a]×[null]? -> a or Ord b => Λ[1,,a]×Φ[a->b] -> a",
-    'max': "Ord a => Λ[1,,a]×[null]? -> a or Ord b => Λ[1,,a]×Φ[a->b] -> a",
-    'abs': "ℝ -> ℝ or ℂ -> ℝ",
-    'lcm': "ℤ* -> ℤ",
-    'gcd': 'ℤ* -> ℤ',
-}
+
+ARCTANH_REAL_DOMAIN = REALS[
+    math.nextafter(-1, math.inf):math.nextafter(1, -math.inf)
+]
+
+
 defaults = {
-    'sqrt': trymath(math.sqrt, cmath.sqrt),
-    'cbrt': trymath(math.cbrt, lambda arg: arg**(1/3)),
-    'root_': lambda n, arg: arg**1/n,
-    'argument': cmath.phase,
-    'rect': cmath.rect,
-    'sin': trymath(math.sin, cmath.sin),
-    'cos': trymath(math.cos, cmath.cos),
-    'tan': trymath(math.tan, cmath.tan),
-    'arcsin': trymath(math.asin, cmath.asin),
-    'arccos': trymath(math.acos, cmath.acos),
-    'arctan': trymath(math.atan, cmath.atan),
-    'sinh': trymath(math.sinh, cmath.sinh),
-    'cosh': trymath(math.cosh, cmath.cosh),
-    'tanh': trymath(math.tanh, cmath.tanh),
-    'arcsinh': trymath(math.asinh, cmath.asinh),
-    'arccosh': trymath(math.acosh, cmath.acosh),
-    'arctanh': trymath(math.atanh, cmath.atanh),
-    'atan2': math.atan2,
-    'min': (lambda args, key=None: min(args, key=key)),
-    'max': (lambda args, key=None: max(args, key=key)),
+    'sqrt': lambda x, /: math.sqrt(NONNEGATIVE_REALS(x)),
+    'csqrt': lambda x, /: cmath.sqrt(COMPLEX(x)),
+    'cbrt': lambda x, /: math.cbrt(REALS(x)),
+    'ccbrt': lambda x, /: COMPLEX(x) ** 1/3,
+    'root_': (
+        lambda n, arg, /: REALS(arg) ** 1/SetDifference(REALS, {0})(n)
+    ),
+    'croot_': (
+        lambda n, arg, /: COMPLEX(arg) ** 1/SetDifference(COMPLEX, {0})(n)
+    ),
+    'argument': lambda x, /: cmath.phase(COMPLEX(x)),
+    'rect': lambda r, phi, /: cmath.rect(REALS(r), REALS(phi)),
+    'sin': lambda x, /: math.sin(REALS(x)),
+    'cos': lambda x, /: math.cos(REALS(x)),
+    'tan': lambda x, /: math.tan(REALS(x)),
+    'csin': lambda x, /: cmath.sin(COMPLEX(x)),
+    'ccos': lambda x, /: cmath.cos(COMPLEX(x)),
+    'ctan': lambda x, /: cmath.tan(COMPLEX(x)),
+    'sinh': lambda x, /: math.sinh(REALS(x)),
+    'cosh': lambda x, /: math.cosh(REALS(x)),
+    'tanh': lambda x, /: math.tanh(REALS(x)),
+    'csinh': lambda x, /: cmath.sinh(COMPLEX(x)),
+    'ccosh': lambda x, /: cmath.cosh(COMPLEX(x)),
+    'ctanh': lambda x, /: cmath.tanh(COMPLEX(x)),
+    'arcsin': lambda x, /: math.asin(REALS[-1:1](x)),
+    'arccos': lambda x, /: math.acos(REALS[-1:1](x)),
+    'arctan': lambda x, /: math.atan(REALS(x)),
+    'carcsin': lambda x, /: cmath.asin(COMPLEX(x)),
+    'carccos': lambda x, /: cmath.acos(COMPLEX(x)),
+    'carctan': lambda x, /: cmath.atan(COMPLEX(x)),
+    'arcsinh': lambda x, /: math.asinh(REALS(x)),
+    'arccosh': lambda x, /: math.acosh(REALS[1:](x)),
+    'arctanh': lambda x, /: math.atanh(ARCTANH_REAL_DOMAIN(x)),
+    'carcsinh': lambda x, /: cmath.asinh(COMPLEX(x)),
+    'carccosh': lambda x, /: cmath.acosh(COMPLEX(x)),
+    'carctanh': lambda x, /: cmath.atanh(SetDifference(COMPLEX, {1, -1})(x)),
+    'atan2': lambda y, x, /: math.atan2(REALS(y), REALS(x)),
+    'min': (lambda args, key=None, /: min(args, key=key)),
+    'max': (lambda args, key=None, /: max(args, key=key)),
     'abs': abs,
-    'gcd': lambda *args: math.gcd(
-        *map(lambda arg: Unsliceable(INTEGERS)[arg], args)
-    ),
-    'lcm': lambda *args: math.lcm(
-        *map(lambda arg: Unsliceable(INTEGERS)[arg], args)
-    ),
-    'printreturn': lambda arg: (print('got value:', arg), arg)[1],
+    'gcd': lambda *args: math.gcd(*(INTEGERS(arg) for arg in args)),
+    'lcm': lambda *args: math.lcm(*(INTEGERS(arg) for arg in args)),
     'slice': lambda *args: (
         BLANK_SLICE if not args else
         GeneralSlice(*args, None) if len(args) == 1 else
         GeneralSlice(*args)
     ),
-    'floor': trymath(
-        math.floor, lambda z: math.floor(z.real) + math.floor(z.imag)*1j
+    'floor': lambda x, /: math.floor(x),
+    'ceil': lambda x, /: math.ceil(x),
+    'trunc': lambda x, /: math.trunc(x),
+    'round': lambda x, nd=None, /: round(x, nd),
+    'frac': (lambda x: x - math.trunc(x)),
+}
+
+function_signatures = {
+    'sqrt': "[0,∞⟩ -> ℝ",
+    'csqrt': "ℂ -> ℂ",
+    'cbrt': "ℝ -> ℝ",
+    'ccbrt': "ℂ -> ℂ",
+    'root_': "(ℝ\\{0})×ℝ -> ℝ",
+    'croot_': "(ℂ\\{0})×ℂ -> ℂ",
+    'argument': "ℂ -> [-π,π]",
+    'rect': "ℝ×ℝ -> ℝ",
+    'sin':  "ℝ -> ℝ",
+    'cos':  "ℝ -> ℝ",
+    'tan':  "ℝ -> ℝ",
+    'csin': "ℂ -> ℂ",
+    'ccos': "ℂ -> ℂ",
+    'ctan': "ℂ -> ℂ",
+    'sinh':  "ℝ -> ℝ",
+    'cosh':  "ℝ -> ℝ",
+    'tanh':  "ℝ -> ℝ",
+    'csinh': "ℂ -> ℂ",
+    'ccosh': "ℂ -> ℂ",
+    'ctanh': "ℂ -> ℂ",
+    'arcsin':  "[-1,1] -> ℝ",
+    'arccos':  "[-1,1] -> ℝ",
+    'arctan':  "ℝ -> ℝ",
+    'carcsin': "ℂ -> ℂ",
+    'carccos': "ℂ -> ℂ",
+    'carctan': "ℂ -> ℂ",
+    'arcsinh':  "ℝ -> ℝ",
+    'arccosh':  "[1,∞⟩ -> ℝ",
+    'arctanh':  "⟨-1,1⟩ -> ℝ",
+    'carcsinh': "ℂ -> ℂ",
+    'carccosh': "ℂ -> ℂ",
+    'carctanh': "ℂ\\{1, -1} -> ℂ",
+    'atan2': "ℝ×ℝ -> ℝ",
+    'min': (
+        "(Ordered a => (a+)×{null}? -> a) or (Ordered b => (a+)×Φ[a->b] -> a)",
+        "(ℝ+)×{null}? -> ℝ or (a+)×Φ[a->ℝ] -> a"
     ),
-    'ceil': math.ceil,
-    'round': round, 'trunc': math.trunc,
-    'frac': (lambda x: x - int(x)),
+    'max': (
+        "(Ordered a => (a+)×{null}? -> a) or (Ordered b => (a+)×Φ[a->b] -> a)",
+        "(ℝ+)×{null}? -> ℝ or (a+)×Φ[a->ℝ] -> a"
+    ),
+    'abs': ("HasAbs a r => a -> r", "ℝ -> ℝ", "ℂ -> ℝ"),
+    'lcm': "ℤ* -> ℤ",
+    'gcd': "ℤ* -> ℤ",
+    'slice': "...ts -> Slice[...ts]"
+    'floor': ("HasFloor a r => a -> r", "ℝ -> ℤ", "ℂ -> ℤ[i]"),
+    'ceil': ("HasCeil a r => a -> r", "ℝ -> ℤ", "ℂ -> ℤ[i]"),
+    'trunc': ("HasTrunc a r => a -> r", "ℝ -> ℤ", "ℂ -> ℤ[i]"),
+    'round': (
+        "HasRound a r1 r2 => (a×{null}? -> r1 or a×ℤ -> r2)",
+        "ℝ×{null}? -> ℤ or ℝ×ℤ -> ℝ", "ℂ×{null}? -> ℤ[i] or ℂ×ℤ -> ℂ"
+    ),
+    'frac': (
+        # where (HasTrunc a b) has functional dependency a -> b
+        # where (HasSub a b c) has functional dependency a b -> c
+        # note: figuring out how to get this to work in Haskell took
+        # me longer than i would like to admit
+        "(HasTrunc a r1, HasSub a r1 r2) => a -> r2",
+        "ℝ -> ℝ", "ℂ -> ℂ"
+    ),
+
+}
+
+
+defaults = {
     'exp': trymath(math.exp, cmath.exp),
     'ln': trymath(lambda x: math.log(x), lambda x: cmath.log(x)),
     'lg': trymath(math.log2, lambda arg: cmath.log(arg, 2)),
@@ -192,7 +254,6 @@ defaults = {
     'i': 1j,
     'Z': INTEGERS,
     'R': REALS,
-    'L': LISTS,
     'F': FUNCTIONS,
     'N': NATURALS,
     'N0': NATURALS_WITH_ZERO,
